@@ -42,7 +42,7 @@ namespace EE::Animation
 
     struct TrackCompressionSettings
     {
-        EE_SERIALIZE( m_translationRangeX, m_translationRangeY, m_translationRangeZ, m_scaleRangeX, m_scaleRangeY, m_scaleRangeZ, m_trackStartIndex, m_isTranslationStatic, m_isScaleStatic );
+        EE_SERIALIZE( m_translationRangeX, m_translationRangeY, m_translationRangeZ, m_scaleRange, m_trackStartIndex, m_isTranslationStatic, m_isScaleStatic );
 
         friend class AnimationClipCompiler;
 
@@ -61,9 +61,7 @@ namespace EE::Animation
         QuantizationRange                       m_translationRangeX;
         QuantizationRange                       m_translationRangeY;
         QuantizationRange                       m_translationRangeZ;
-        QuantizationRange                       m_scaleRangeX;
-        QuantizationRange                       m_scaleRangeY;
-        QuantizationRange                       m_scaleRangeZ;
+        QuantizationRange                       m_scaleRange;
         uint32_t                                m_trackStartIndex = 0; // The start offset for this track in the compressed data block (in number of uint16s)
 
     private:
@@ -77,7 +75,7 @@ namespace EE::Animation
     class EE_ENGINE_API AnimationClip : public Resource::IResource
     {
         EE_REGISTER_RESOURCE( 'anim', "Animation Clip" );
-        EE_SERIALIZE( m_pSkeleton, m_numFrames, m_duration, m_compressedPoseData, m_trackCompressionSettings, m_rootMotion, m_isAdditive );
+        EE_SERIALIZE( m_skeleton, m_numFrames, m_duration, m_compressedPoseData, m_trackCompressionSettings, m_rootMotion, m_isAdditive );
 
         friend class AnimationClipCompiler;
         friend class AnimationClipLoader;
@@ -98,21 +96,19 @@ namespace EE::Animation
             return Vector( m_x, m_y, m_z );
         }
 
-        inline static Vector DecodeScale( uint16_t const* pData, TrackCompressionSettings const& settings )
+        inline static float DecodeScale( uint16_t const* pData, TrackCompressionSettings const& settings )
         {
-            float const m_x = Quantization::DecodeFloat( pData[0], settings.m_scaleRangeX.m_rangeStart, settings.m_scaleRangeX.m_rangeLength );
-            float const m_y = Quantization::DecodeFloat( pData[1], settings.m_scaleRangeY.m_rangeStart, settings.m_scaleRangeY.m_rangeLength );
-            float const m_z = Quantization::DecodeFloat( pData[2], settings.m_scaleRangeZ.m_rangeStart, settings.m_scaleRangeZ.m_rangeLength );
-            return Vector( m_x, m_y, m_z );
+            float const s = Quantization::DecodeFloat( pData[0], settings.m_scaleRange.m_rangeStart, settings.m_scaleRange.m_rangeLength );
+            return s;
         }
 
     public:
 
         AnimationClip() = default;
 
-        virtual bool IsValid() const final { return m_pSkeleton != nullptr && m_pSkeleton.IsLoaded() && m_numFrames > 0; }
-        inline Skeleton const* GetSkeleton() const { return m_pSkeleton.GetPtr(); }
-        inline int32_t GetNumBones() const { EE_ASSERT( m_pSkeleton != nullptr ); return m_pSkeleton->GetNumBones(); }
+        virtual bool IsValid() const final { return m_skeleton != nullptr && m_skeleton.IsLoaded() && m_numFrames > 0; }
+        inline Skeleton const* GetSkeleton() const { return m_skeleton.GetPtr(); }
+        inline int32_t GetNumBones() const { EE_ASSERT( m_skeleton != nullptr ); return m_skeleton->GetNumBones(); }
 
         // Animation Info
         //-------------------------------------------------------------------------
@@ -202,7 +198,7 @@ namespace EE::Animation
 
     private:
 
-        TResourcePtr<Skeleton>                  m_pSkeleton;
+        TResourcePtr<Skeleton>                  m_skeleton;
         uint32_t                                m_numFrames = 0;
         Seconds                                 m_duration = 0.0f;
         TVector<uint16_t>                       m_compressedPoseData;
@@ -284,12 +280,12 @@ namespace EE::Animation
         // Read scale
         //-------------------------------------------------------------------------
 
-        // Scales are 48bits (3 x uint16_t)
-        static constexpr uint32_t const scaleStride = 3;
+        // Scales are 16bits (1 x uint16_t)
+        static constexpr uint32_t const scaleStride = 1;
 
         if ( trackSettings.IsScaleTrackStatic() )
         {
-            Vector const scale = DecodeScale( pTrackData, trackSettings );
+            float const scale = DecodeScale( pTrackData, trackSettings );
             transform0.SetScale( scale );
             transform1.SetScale( scale );
 
@@ -370,12 +366,12 @@ namespace EE::Animation
         // Read scale
         //-------------------------------------------------------------------------
 
-         // Scales are 48bits (3 x uint16_t)
-        static constexpr uint32_t const scaleStride = 3;
+         // Scales are 16bits (1 x uint16_t)
+        static constexpr uint32_t const scaleStride = 1;
 
         if ( trackSettings.IsScaleTrackStatic() )
         {
-            Vector const scale = DecodeScale( pTrackData, trackSettings );
+            float scale = DecodeScale( pTrackData, trackSettings );
             outTransform.SetScale( scale );
 
             // Shift the track data ptr to the next track's rotation data

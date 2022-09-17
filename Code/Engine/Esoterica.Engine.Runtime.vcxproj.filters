@@ -407,6 +407,9 @@
     <ClCompile Include="Entity\EntityLog.cpp" />
     <ClCompile Include="Animation\Graph\Nodes\Animation_RuntimeGraphNode_ChildGraph.cpp" />
     <ClCompile Include="Entity\EntitySerialization.cpp" />
+    <ClCompile Include="Entity\EntityIDs.cpp">
+      <Filter>Entity</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Component_SerializationTest.h" />
@@ -517,10 +520,7 @@
     <ClInclude Include="Entity\Entity.h">
       <Filter>Entity</Filter>
     </ClInclude>
-    <ClInclude Include="Entity\EntityAccessor.h">
-      <Filter>Entity</Filter>
-    </ClInclude>
-    <ClInclude Include="Entity\EntityActivationContext.h">
+    <ClInclude Include="Entity\EntityContexts.h">
       <Filter>Entity</Filter>
     </ClInclude>
     <ClInclude Include="Entity\EntityComponent.h">
@@ -530,9 +530,6 @@
       <Filter>Entity</Filter>
     </ClInclude>
     <ClInclude Include="Entity\EntityIDs.h">
-      <Filter>Entity</Filter>
-    </ClInclude>
-    <ClInclude Include="Entity\EntityLoadingContext.h">
       <Filter>Entity</Filter>
     </ClInclude>
     <ClInclude Include="Entity\EntityMap.h">

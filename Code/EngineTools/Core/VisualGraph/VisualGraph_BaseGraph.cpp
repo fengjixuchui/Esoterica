@@ -1,4 +1,5 @@
 #include "VisualGraph_BaseGraph.h"
+#include "VisualGraph_UserContext.h"
 #include "System/Serialization/TypeSerialization.h"
 #include "System/TypeSystem/TypeRegistry.h"
 
@@ -71,8 +72,8 @@ namespace EE::VisualGraph
 
     void BaseNode::Destroy()
     {
-         EE_ASSERT( HasParentGraph() );
-         GetParentGraph()->DestroyNode( m_ID );
+        EE_ASSERT( HasParentGraph() );
+        GetParentGraph()->DestroyNode( m_ID );
     }
 
     BaseGraph* BaseNode::GetRootGraph()
@@ -120,10 +121,6 @@ namespace EE::VisualGraph
 
         //-------------------------------------------------------------------------
 
-        SerializeCustom( typeRegistry, nodeObjectValue );
-
-        //-------------------------------------------------------------------------
-
         EE::Delete( m_pChildGraph );
 
         auto const childGraphValueIter = nodeObjectValue.FindMember( s_childGraphKey );
@@ -145,6 +142,10 @@ namespace EE::VisualGraph
             auto& graphObjectValue = secondaryGraphValueIter->value;
             m_pSecondaryGraph = BaseGraph::CreateGraphFromSerializedData( typeRegistry, graphObjectValue, this );
         }
+
+        //-------------------------------------------------------------------------
+
+        SerializeCustom( typeRegistry, nodeObjectValue );
     }
 
     void BaseNode::Serialize( TypeSystem::TypeRegistry const& typeRegistry, Serialization::JsonWriter& writer ) const
@@ -203,7 +204,7 @@ namespace EE::VisualGraph
         m_pParentGraph->EndModification();
     }
 
-    void BaseNode::SetCanvasPosition( ImVec2 const& newPosition )
+    void BaseNode::SetCanvasPosition( Float2 const& newPosition )
     {
         BeginModification();
         m_canvasPosition = newPosition;
@@ -231,7 +232,7 @@ namespace EE::VisualGraph
         return m_ID;
     }
 
-    ImColor BaseNode::GetNodeBorderColor( DrawContext const& ctx, NodeVisualState visualState ) const
+    ImColor BaseNode::GetNodeBorderColor( DrawContext const& ctx, UserContext* pUserContext, NodeVisualState visualState ) const
     {
         if ( visualState == NodeVisualState::Active )
         {
@@ -241,14 +242,39 @@ namespace EE::VisualGraph
         {
             return VisualSettings::s_genericHoverColor;
         }
-        else if( visualState == NodeVisualState::Selected )
+        else if ( visualState == NodeVisualState::Selected )
         {
             return VisualSettings::s_genericSelectionColor;
         }
         else
         {
-           return ImColor( 0 );
+            return ImColor( 0 );
         }
+    }
+
+    void BaseNode::OnDoubleClick( UserContext* pUserContext )
+    {
+        auto pChildGraph = GetChildGraph();
+        if ( pChildGraph != nullptr )
+        {
+            pUserContext->NavigateTo( pChildGraph );
+        }
+    }
+
+    ImRect BaseNode::GetCanvasRect() const
+    {
+        ImVec2 const nodeMargin = GetNodeMargin();
+        ImVec2 const rectMin = ImVec2( m_canvasPosition ) - nodeMargin;
+        ImVec2 const rectMax = ImVec2( m_canvasPosition ) + m_size + nodeMargin;
+        return ImRect( rectMin, rectMax );
+    }
+
+    ImRect BaseNode::GetWindowRect( Float2 const& canvasToWindowOffset ) const
+    {
+        ImVec2 const nodeMargin = GetNodeMargin();
+        ImVec2 const rectMin = ImVec2( m_canvasPosition ) - nodeMargin - canvasToWindowOffset;
+        ImVec2 const rectMax = ImVec2( m_canvasPosition ) + m_size + nodeMargin - canvasToWindowOffset;
+        return ImRect( rectMin, rectMax );
     }
 
     //-------------------------------------------------------------------------
@@ -488,11 +514,70 @@ namespace EE::VisualGraph
         EE_ASSERT( IDMapping.find( originalID ) == IDMapping.end() );
         IDMapping.insert( TPair<UUID, UUID>( originalID, m_ID ) );
 
-        for( auto pNode : m_nodes )
+        for ( auto pNode : m_nodes )
         {
             pNode->RegenerateIDs( IDMapping );
         }
 
         return m_ID;
+    }
+
+    void BaseGraph::OnShowGraph( UserContext* pUserContext )
+    {
+        for ( auto pNode : m_nodes )
+        {
+            pNode->OnShowNode( pUserContext );
+        }
+    }
+
+    void BaseGraph::OnDoubleClick( UserContext* pUserContext )
+    {
+        auto pParentNode = GetParentNode();
+        if ( pParentNode != nullptr )
+        {
+            pUserContext->NavigateTo( pParentNode->GetParentGraph() );
+        }
+    }
+
+    String BaseGraph::GetUniqueNameForRenameableNode( String const& desiredName, BaseNode const* m_pNodeToIgnore ) const
+    {
+        String uniqueName = desiredName;
+        bool isNameUnique = false;
+        int32_t suffix = 0;
+
+        while ( !isNameUnique )
+        {
+            isNameUnique = true;
+
+            // Check control parameters
+            for ( auto pNode : m_nodes )
+            {
+                // Ignore specified node
+                if ( pNode == m_pNodeToIgnore )
+                {
+                    continue;
+                }
+
+                // Only check other renameable nodes
+                if ( !pNode->IsRenameable() )
+                {
+                    continue;
+                }
+
+                if ( pNode->GetName() == uniqueName )
+                {
+                    isNameUnique = false;
+                    break;
+                }
+            }
+
+            if ( !isNameUnique )
+            {
+                uniqueName.sprintf( "%s_%d", desiredName.c_str(), suffix);
+                suffix++;
+            }
+        }
+
+        return uniqueName;
     }
 }

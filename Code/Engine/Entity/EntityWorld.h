@@ -1,8 +1,7 @@
 #pragma once
 
 #include "EntityWorldSystem.h"
-#include "EntityActivationContext.h"
-#include "EntityLoadingContext.h"
+#include "EntityContexts.h"
 #include "Entity.h"
 #include "EntityMap.h"
 #include "Engine/Render/RenderViewport.h"
@@ -35,7 +34,7 @@ namespace EE
 
     public:
 
-        EntityWorld( EntityWorldType worldType = EntityWorldType::Game ) : m_worldType( worldType ) {}
+        EntityWorld( EntityWorldType worldType = EntityWorldType::Game );
         ~EntityWorld();
 
         inline EntityWorldID const& GetID() const { return m_worldID; }
@@ -120,8 +119,16 @@ namespace EE
         //-------------------------------------------------------------------------
 
         // Get the persistent map - this is a transient map that's always presents - be very careful with what you add to this map
-        EntityModel::EntityMap* GetPersistentMap() { return &m_maps[0]; }
-        EntityModel::EntityMap const* GetPersistentMap() const { return &m_maps[0]; }
+        EntityModel::EntityMap* GetPersistentMap() { return m_maps[0]; }
+
+        // Get the persistent map - this is a transient map that's always presents - be very careful with what you add to this map
+        EntityModel::EntityMap const* GetPersistentMap() const { return m_maps[0]; }
+
+        // Get the first non-persistent map
+        EntityModel::EntityMap* GetFirstNonPersistentMap() { return ( m_maps.size() > 1 ) ? m_maps[1] : nullptr; }
+
+        // Get the first non-persistent map
+        EntityModel::EntityMap const* GetFirstNonPersistentMap() const { return ( m_maps.size() > 1 ) ? m_maps[1] : nullptr; }
 
         // Create a transient map (one that is managed programatically)
         EntityModel::EntityMap* CreateTransientMap();
@@ -144,23 +151,26 @@ namespace EE
         // Have we added this map to the world
         bool HasMap( ResourceID const& mapResourceID ) const;
 
-        // Does the specified map exist and is fully loaded
-        bool IsMapActive( ResourceID const& mapResourceID ) const;
+        // Do we have a map with this ID?
+        bool HasMap( EntityMapID const& mapID ) const;
 
         // Does the specified map exist and is fully loaded
-        bool IsMapActive( EntityMapID const& mapID ) const;
+        bool IsMapLoaded( ResourceID const& mapResourceID ) const;
+
+        // Does the specified map exist and is fully loaded
+        bool IsMapLoaded( EntityMapID const& mapID ) const;
 
         // These functions queue up load and unload requests to be processed during the next loading update for the world
-        void LoadMap( ResourceID const& mapResourceID );
+        EntityMapID LoadMap( ResourceID const& mapResourceID );
         void UnloadMap( ResourceID const& mapResourceID );
 
         // Find an entity in the map
         inline Entity* FindEntity( EntityID entityID ) const
         {
             Entity* pEntity = nullptr;
-            for ( auto const& map : m_maps )
+            for ( auto const& pMap : m_maps )
             {
-                pEntity = map.FindEntity( entityID );
+                pEntity = pMap->FindEntity( entityID );
                 if ( pEntity != nullptr )
                 {
                     break;
@@ -175,9 +185,11 @@ namespace EE
         //-------------------------------------------------------------------------
 
         #if EE_DEVELOPMENT_TOOLS
+        // This function will immediately shutdown and unload the specified component so that its properties can be edited
+        void BeginComponentEdit( EntityComponent* pComponent );
 
-        // This function will immediately unload the specified component so that its properties can be edited
-        void PrepareComponentForEditing( EntityMapID const& mapID, EntityID const& entityID, ComponentID const& componentID );
+        // End a component edit operation, will request the unloaded component to be reloaded
+        void EndComponentEdit( EntityComponent* pComponent );
 
         // Get all the registered components of the specified type
         inline TVector<EntityComponent const*> const& GetAllRegisteredComponentsOfType( TypeSystem::TypeID typeID ) { return m_componentTypeLookup[typeID]; }
@@ -194,6 +206,33 @@ namespace EE
             return results;
         }
 
+        // Are any maps currently in the process of loading or have any add/remove entity actions pending
+        inline bool HasPendingMapChangeActions() const
+        {
+            for ( auto pMap : m_maps )
+            {
+                if ( pMap->IsLoading() )
+                {
+                    return true;
+                }
+
+                if ( pMap->HasPendingAddOrRemoveRequests() )
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // This function will update all maps so as to complete any entity removal requests
+        // WARNING!!! Be very careful when you call this
+        inline void ProcessAllRemovalRequests()
+        {
+            // Shutdown Entities
+            UpdateLoading();
+            // Complete Removal
+            UpdateLoading();
+        }
         #endif
 
         //-------------------------------------------------------------------------
@@ -218,7 +257,7 @@ namespace EE
         //-------------------------------------------------------------------------
 
         #if EE_DEVELOPMENT_TOOLS
-        // Starts the hot-reload process - deactivates and unloads all specified entities
+        // Starts the hot-reload process - shuts down and unloads all specified entities
         void BeginHotReload( TVector<Resource::ResourceRequesterID> const& usersToReload );
 
         // Ends the hot-reload process - starts re-loading of unloaded entities
@@ -227,19 +266,11 @@ namespace EE
 
     private:
 
-        // Process entity registration/unregistration requests occurring during map loading
-        void ProcessEntityRegistrationRequests();
-
-        // Process component registration/unregistration requests occurring during map loading
-        void ProcessComponentRegistrationRequests();
-
-    private:
-
         EntityWorldID                                                           m_worldID = UUID::GenerateID();
         TaskSystem*                                                             m_pTaskSystem = nullptr;
         Input::InputState                                                       m_inputState;
-        EntityModel::EntityLoadingContext                                       m_loadingContext;
-        EntityModel::ActivationContext                                          m_activationContext;
+        EntityModel::LoadingContext                                             m_loadingContext;
+        EntityModel::InitializationContext                                      m_initializationContext;
         TVector<IEntityWorldSystem*>                                            m_worldSystems;
         EntityWorldType                                                         m_worldType = EntityWorldType::Game;
         bool                                                                    m_initialized = false;
@@ -247,7 +278,7 @@ namespace EE
         Render::Viewport                                                        m_viewport = Render::Viewport( Int2::Zero, Int2( 640, 480 ), Math::ViewVolume( Float2( 640, 480 ), FloatRange( 0.1f, 100.0f ) ) );
 
         // Maps
-        TInlineVector<EntityModel::EntityMap, 3>                                m_maps;
+        TInlineVector<EntityModel::EntityMap*, 3>                               m_maps;
 
         // Entities
         TVector<Entity*>                                                        m_entityUpdateList;
@@ -259,7 +290,7 @@ namespace EE
         bool                                                                    m_timeStepRequested = false;
 
         #if EE_DEVELOPMENT_TOOLS
-        THashMap<TypeSystem::TypeID, TVector<EntityComponent const*>>           m_componentTypeLookup;
+        EntityModel::EntityComponentTypeMap                                     m_componentTypeLookup;
         Drawing::DrawingSystem                                                  m_debugDrawingSystem;
         TVector<EntityWorldDebugView*>                                          m_debugViews;
         String                                                                  m_debugName;

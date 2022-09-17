@@ -1,5 +1,6 @@
 #include "ResourceServerApplication.h"
 #include "Resources/Resource.h"
+#include "Applications/Shared/LivePP/LivePP.h"
 #include "System/Log.h"
 #include "System/Time/Timers.h"
 #include "System/FileSystem/FileSystemUtils.h"
@@ -8,10 +9,6 @@
 #include "System/IniFile.h"
 #include <tchar.h>
 #include <shobjidl_core.h>
-
-#if EE_ENABLE_LPP
-#include "LPP_API_x64_CPP.h"
-#endif
 
 //-------------------------------------------------------------------------
 
@@ -142,7 +139,7 @@ namespace EE
 
         //-------------------------------------------------------------------------
 
-        m_imguiSystem.Initialize( m_applicationNameNoWhitespace + ".imgui.ini", m_pRenderDevice );
+        m_imguiSystem.Initialize( m_pRenderDevice );
         m_imguiRenderer.Initialize( m_pRenderDevice );
 
         //-------------------------------------------------------------------------
@@ -260,30 +257,22 @@ int APIENTRY _tWinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpC
     }
 
     //-------------------------------------------------------------------------
-    // Live++ Support
-    //-------------------------------------------------------------------------
 
-    #if EE_ENABLE_LPP
-    //auto lppAgent = lpp::LppCreateDefaultAgent( L"../../External/LivePP", L"" );
-    //lppAgent.EnableModule( lpp::LppGetCurrentModulePath(), lpp::LPP_MODULES_OPTION_NONE );
-    #endif
+    int result = 0;
+    {
+        #if EE_ENABLE_LPP
+        //auto lppAgent = EE::ScopedLPPAgent();
+        #endif
 
-    //-------------------------------------------------------------------------
-    
-    EE::ApplicationGlobalState globalState;
-    EE::ResourceServerApplication engineApplication( hInstance );
-    int const result = engineApplication.Run( __argc, __argv );
+        EE::ApplicationGlobalState globalState;
+        EE::ResourceServerApplication engineApplication( hInstance );
+        result = engineApplication.Run( __argc, __argv );
+    }
 
     //-------------------------------------------------------------------------
 
     ReleaseMutex( pSingletonMutex );
     CloseHandle( pSingletonMutex );
-
-    //-------------------------------------------------------------------------
-
-    #if EE_ENABLE_LPP
-    //lpp::LppDestroyDefaultAgent( &lppAgent );
-    #endif
 
     return result;
 }

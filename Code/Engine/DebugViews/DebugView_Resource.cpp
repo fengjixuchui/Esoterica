@@ -89,7 +89,7 @@ namespace EE::Resource
 
                 case LoadingStatus::Loading:
                 {
-                    ImGui::TextColored( Colors::Yellow.ToFloat4(), "Loaded" );
+                    ImGui::TextColored( Colors::Yellow.ToFloat4(), "Loading" );
                 }
                 break;
 
@@ -107,7 +107,7 @@ namespace EE::Resource
 
                 case LoadingStatus::Failed:
                 {
-                    ImGui::TextColored( Colors::Red.ToFloat4(), "Loaded" );
+                    ImGui::TextColored( Colors::Red.ToFloat4(), "Failed" );
                 }
                 break;
             }
@@ -122,6 +122,10 @@ namespace EE::Resource
                     if ( requesterID.IsManualRequest() )
                     {
                         ImGui::TextColored( Colors::Aqua.ToFloat4(), "Manual Request" );
+                    }
+                    else if ( requesterID.IsToolsRequest() )
+                    {
+                        ImGui::TextColored( Colors::Aqua.ToFloat4(), "Tools Request" );
                     }
                     else if ( requesterID.IsInstallDependencyRequest() )
                     {

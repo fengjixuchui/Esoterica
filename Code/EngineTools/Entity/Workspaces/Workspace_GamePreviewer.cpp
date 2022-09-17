@@ -1,5 +1,6 @@
 #include "Workspace_GamePreviewer.h"
 #include "Engine/Entity/EntityWorld.h"
+#include "Engine/Camera/Systems/WorldSystem_CameraManager.h"
 #include "System/IniFile.h"
 
 //-------------------------------------------------------------------------
@@ -8,14 +9,18 @@ namespace EE
 {
     GamePreviewer::GamePreviewer( ToolsContext const* pToolsContext, EntityWorld* pWorld )
         : Workspace( pToolsContext, pWorld, String( "Game Preview" ) )
-    {}
+    {
+        // Switch back to player camera
+        auto pCameraManager = m_pWorld->GetWorldSystem<CameraManager>();
+        pCameraManager->DisableDebugCamera();
+    }
 
     void GamePreviewer::LoadMapToPreview( ResourceID mapResourceID )
     {
         if ( mapResourceID != m_loadedMap )
         {
             // Unload current map
-            if ( m_loadedMap.IsValid() && m_pWorld->IsMapActive( m_loadedMap ) )
+            if ( m_loadedMap.IsValid() && m_pWorld->IsMapLoaded( m_loadedMap ) )
             {
                 m_pWorld->UnloadMap( m_loadedMap );
             }

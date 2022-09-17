@@ -5,28 +5,50 @@
 
 namespace EE
 {
-    struct PointerID
-    {
-        EE_SERIALIZE( m_ID );
-
-        PointerID() = default;
-        PointerID( void const* pV ) : m_ID( reinterpret_cast<uint64_t>( pV ) ) {}
-        explicit PointerID( uint64_t v ) : m_ID( v ) {}
-
-        inline bool IsValid() const { return m_ID != 0; }
-        inline void Clear() { m_ID = 0; }
-        inline bool operator==( PointerID const& rhs ) const { return m_ID == rhs.m_ID; }
-        inline bool operator!=( PointerID const& rhs ) const { return m_ID != rhs.m_ID; }
-
-        inline uint64_t ToUint64() const { return m_ID; }
-
-        uint64_t m_ID = 0;
-    };
-
-    using ComponentID = PointerID;
-    using EntityID = PointerID;
     using EntityMapID = UUID;
     using EntityWorldID = UUID;
+
+    //-------------------------------------------------------------------------
+
+    struct EntityID
+    {
+        static EntityID Generate();
+
+    public:
+
+        EntityID() = default;
+        explicit EntityID( uint64_t v ) : m_value( v ) { EE_ASSERT( v != 0 ); }
+
+        EE_FORCE_INLINE bool IsValid() const { return m_value != 0; }
+        EE_FORCE_INLINE void Clear() { m_value = 0; }
+        EE_FORCE_INLINE bool operator==( EntityID const& rhs ) const { return m_value == rhs.m_value; }
+        EE_FORCE_INLINE bool operator!=( EntityID const& rhs ) const { return m_value != rhs.m_value; }
+
+    public:
+
+        uint64_t m_value = 0;
+    };
+
+    //-------------------------------------------------------------------------
+
+    struct ComponentID
+    {
+        static ComponentID Generate();
+
+    public:
+
+        ComponentID() = default;
+        explicit ComponentID( uint64_t v ) : m_value( v ) { EE_ASSERT( v != 0 ); }
+
+        EE_FORCE_INLINE bool IsValid() const { return m_value != 0; }
+        EE_FORCE_INLINE void Clear() { m_value = 0; }
+        EE_FORCE_INLINE bool operator==( ComponentID const& rhs ) const { return m_value == rhs.m_value; }
+        EE_FORCE_INLINE bool operator!=( ComponentID const& rhs ) const { return m_value != rhs.m_value; }
+
+    public:
+
+        uint64_t m_value = 0;
+    };
 }
 
 //-------------------------------------------------------------------------
@@ -34,8 +56,14 @@ namespace EE
 namespace eastl
 {
     template <>
-    struct hash<EE::PointerID>
+    struct hash<EE::EntityID>
     {
-        EE_FORCE_INLINE eastl_size_t operator()( EE::PointerID const& t ) const { return t.m_ID; }
+        EE_FORCE_INLINE eastl_size_t operator()( EE::EntityID const& t ) const { return t.m_value; }
+    };
+
+    template <>
+    struct hash<EE::ComponentID>
+    {
+        EE_FORCE_INLINE eastl_size_t operator()( EE::ComponentID const& t ) const { return t.m_value; }
     };
 }

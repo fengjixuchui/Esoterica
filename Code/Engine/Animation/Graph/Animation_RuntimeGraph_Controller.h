@@ -48,7 +48,7 @@ namespace EE::Animation
                     if ( m_index == InvalidIndex )
                     {
                         #if EE_DEVELOPMENT_TOOLS
-                        EE_LOG_WARNING( "Animation", "Failed to bind to control parameter (%s): parameter not found. Controller (%s) and graph (%s)", m_ID.c_str(), pController->GetName(), pController->m_pGraphInstance->GetGraphVariationID().c_str() );
+                        EE_LOG_WARNING( "Animation", "Failed to bind to control parameter (%s): parameter not found. Controller (%s) and graph (%s)", m_ID.c_str(), pController->GetName(), pController->m_pGraphInstance->GetResourceID().c_str() );
                         #endif
 
                         return false;
@@ -58,7 +58,7 @@ namespace EE::Animation
                     if ( pController->m_pGraphInstance->GetControlParameterType( m_index ) != ValueTypeValidation<ParameterType>::Type )
                     {
                         #if EE_DEVELOPMENT_TOOLS
-                        EE_LOG_WARNING( "Animation", "Failed to bind to control parameter (%s): type mismatch. Controller (%s) and graph (%s)", m_ID.c_str(), pController->GetName(), pController->m_pGraphInstance->GetGraphVariationID().c_str() );
+                        EE_LOG_WARNING( "Animation", "Failed to bind to control parameter (%s): type mismatch. Controller (%s) and graph (%s)", m_ID.c_str(), pController->GetName(), pController->m_pGraphInstance->GetResourceID().c_str() );
                         #endif
 
                         m_index = InvalidIndex;
@@ -105,12 +105,12 @@ namespace EE::Animation
 
             EE_FORCE_INLINE Vector ConvertWorldSpacePointToCharacterSpace( Vector const& worldPoint ) const
             {
-                return m_pAnimatedMeshComponent->GetWorldTransform().GetInverse().TransformPoint( worldPoint );
+                return m_pAnimatedMeshComponent->GetWorldTransform().InverseTransformPoint( worldPoint );
             }
 
             EE_FORCE_INLINE Vector ConvertWorldSpaceVectorToCharacterSpace( Vector const& worldVector ) const
             {
-                return m_pAnimatedMeshComponent->GetWorldTransform().GetInverse().RotateVector( worldVector );
+                return m_pAnimatedMeshComponent->GetWorldTransform().InverseTransformVector( worldVector );
             }
 
             // Graph Info
@@ -228,13 +228,13 @@ namespace EE::Animation
 
             if ( !m_pGraphInstance->IsValidExternalGraphSlotID( slotID ) )
             {
-                EE_LOG_ENTITY_ERROR( m_pGraphComponent, "Animation", "Invalid slot ID (%s) - Component (%s) on Entity (%ul)!", slotID.c_str(), m_pGraphComponent->GetName().c_str(), m_pGraphComponent->GetEntityID().m_ID );
+                EE_LOG_ENTITY_ERROR( m_pGraphComponent, "Animation", "Invalid slot ID (%s) - Component (%s) on Entity (%ul)!", slotID.c_str(), m_pGraphComponent->GetNameID().c_str(), m_pGraphComponent->GetEntityID().m_value );
                 return nullptr;
             }
 
             if ( m_pGraphInstance->IsExternalGraphSlotFilled( slotID ) )
             {
-                EE_LOG_ENTITY_ERROR( m_pGraphComponent, "Animation", "External graph slot (%s) is filled! - Component (%s) on Entity (%ul)", slotID.c_str(), m_pGraphComponent->GetName().c_str(), m_pGraphComponent->GetEntityID().m_ID );
+                EE_LOG_ENTITY_ERROR( m_pGraphComponent, "Animation", "External graph slot (%s) is filled! - Component (%s) on Entity (%ul)", slotID.c_str(), m_pGraphComponent->GetNameID().c_str(), m_pGraphComponent->GetEntityID().m_value );
                 return nullptr;
             }
 

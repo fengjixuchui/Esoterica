@@ -1,7 +1,6 @@
 #pragma once
 #include "Animation_RuntimeGraph_Node.h"
 #include "Animation_RuntimeGraph_DataSet.h"
-#include "Engine/Animation/AnimationClip.h"
 #include "System/Resource/ResourcePtr.h"
 
 //-------------------------------------------------------------------------
@@ -77,7 +76,7 @@ namespace EE::Animation
     class EE_ENGINE_API GraphVariation final : public Resource::IResource
     {
         EE_REGISTER_RESOURCE( 'agv', "Animation Graph Variation" );
-        EE_SERIALIZE( m_pGraphDefinition, m_pDataSet );
+        EE_SERIALIZE( m_pGraphDefinition, m_dataSet );
 
         friend class AnimationGraphCompiler;
         friend class GraphLoader;
@@ -87,13 +86,13 @@ namespace EE::Animation
 
         virtual bool IsValid() const override
         {
-            return m_pGraphDefinition.IsLoaded() && m_pDataSet.IsLoaded();
+            return m_pGraphDefinition.IsLoaded() && m_dataSet.IsValid();
         }
 
         inline Skeleton const* GetSkeleton() const 
         {
             EE_ASSERT( IsValid() );
-            return m_pDataSet->GetSkeleton();
+            return m_dataSet.GetSkeleton();
         }
 
         inline GraphDefinition const* GetDefinition() const 
@@ -105,6 +104,6 @@ namespace EE::Animation
     protected:
 
         TResourcePtr<GraphDefinition>               m_pGraphDefinition = nullptr;
-        TResourcePtr<GraphDataSet>                  m_pDataSet = nullptr;
+        GraphDataSet                                m_dataSet;
     };
 }

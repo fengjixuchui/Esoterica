@@ -18,6 +18,7 @@ namespace EE
     {
         EE_ASSERT( m_pToolsContext != nullptr );
         EE_ASSERT( m_pToolsContext->m_pTypeRegistry->IsTypeDerivedFrom( descriptorTypeID, Resource::ResourceDescriptor::GetStaticTypeID() ) );
+
         auto pTypeInfo = m_pToolsContext->m_pTypeRegistry->GetTypeInfo( descriptorTypeID );
         EE_ASSERT( pTypeInfo != nullptr );
 
@@ -39,6 +40,15 @@ namespace EE
 
     bool ResourceDescriptorCreator::Draw()
     {
+        auto pTypeInfo = m_pDescriptor->GetTypeInfo();
+        if ( !pTypeInfo->HasExposedProperties() )
+        {
+            SaveDescriptor();
+            return false;
+        }
+
+        //-------------------------------------------------------------------------
+
         if ( !ImGui::IsPopupOpen( s_title ) )
         {
             ImGui::OpenPopup( s_title );
@@ -54,11 +64,13 @@ namespace EE
 
             //-------------------------------------------------------------------------
 
-            if ( ImGui::Button( "Save", ImVec2( 120, 0 ) ) )
+            ImGui::BeginDisabled( !m_pDescriptor->IsValid() );
+            if ( ImGuiX::ColoredButton( Colors::Green, Colors::White, "Save", ImVec2( 120, 0 ) ) )
             {
                 SaveDescriptor();
                 ImGui::CloseCurrentPopup();
             }
+            ImGui::EndDisabled();
 
             ImGui::SetItemDefaultFocus();
             ImGui::SameLine();
@@ -76,16 +88,16 @@ namespace EE
         return isOpen && ImGui::IsPopupOpen( s_title );
     }
 
-    bool ResourceDescriptorCreator::SaveDescriptor()
+    void ResourceDescriptorCreator::SaveDescriptor()
     {
         ResourceTypeID const resourceTypeID = m_pDescriptor->GetCompiledResourceTypeID();
         TInlineString<5> const resourceTypeIDString = resourceTypeID.ToString();
         TypeSystem::ResourceInfo const* pResourceInfo = m_pToolsContext->m_pTypeRegistry->GetResourceInfoForResourceType( resourceTypeID );
 
         FileSystem::Path outPath = SaveDialog( resourceTypeID, m_startingPath, pResourceInfo->m_friendlyName );
-        if ( !outPath.IsValid() )
+        if( !outPath.IsValid() )
         {
-            return false;
+            return;
         }
 
         // Ensure that the extension matches the expected type
@@ -96,6 +108,10 @@ namespace EE
         }
 
         EE_ASSERT( m_pDescriptor != nullptr );
-        return Resource::ResourceDescriptor::TryWriteToFile( *m_pToolsContext->m_pTypeRegistry, outPath, m_pDescriptor );
+        if ( !Resource::ResourceDescriptor::TryWriteToFile( *m_pToolsContext->m_pTypeRegistry, outPath, m_pDescriptor ) )
+        {
+            InlineString const str( InlineString::CtorSprintf(), "Failed to write descriptor file (%s) to disk!", outPath.c_str() );
+            pfd::message( "Error Saving Descriptor!", str.c_str(), pfd::choice::ok, pfd::icon::error ).result();
+        }
     }
 }

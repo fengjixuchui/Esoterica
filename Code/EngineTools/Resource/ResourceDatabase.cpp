@@ -131,29 +131,49 @@ namespace EE::Resource
     // TODO: Make this async!
     void ResourceDatabase::RebuildDatabase()
     {
-        m_resourcesPerType.clear();
-        m_rootDir.Clear();
-
+        // Reset the resource type category and add an entry for for every known resource type
         //-------------------------------------------------------------------------
 
+        m_resourcesPerType.clear();
+        for ( auto const& resourceInfoPair : m_pTypeRegistry->GetRegisteredResourceTypes() )
+        {
+            auto const& resourceInfo = resourceInfoPair.second;
+            m_resourcesPerType.insert( TPair<ResourceTypeID, TVector<ResourceEntry*>>( resourceInfo.m_resourceTypeID, TVector<ResourceEntry*>() ) );
+        }
+
+        // Reset the root dir
+        //-------------------------------------------------------------------------
+
+        m_rootDir.Clear();
         m_rootDir.m_name = StringID( m_rawResourceDirPath.GetDirectoryName() );
         m_rootDir.m_filePath = m_rawResourceDirPath;
 
+        // Get all files in the data directory
         //-------------------------------------------------------------------------
 
         TVector<FileSystem::Path> foundPaths;
-        if ( !FileSystem::GetDirectoryContents( m_rawResourceDirPath, foundPaths, FileSystem::DirectoryReaderOutput::OnlyFiles, FileSystem::DirectoryReaderMode::Expand ) )
+        if ( !FileSystem::GetDirectoryContents( m_rawResourceDirPath, foundPaths, FileSystem::DirectoryReaderOutput::All, FileSystem::DirectoryReaderMode::Expand ) )
         {
             EE_HALT();
         }
 
+        // Add record for all files
         //-------------------------------------------------------------------------
 
         for ( auto const& filePath : foundPaths )
         {
-            AddFileRecord( filePath );
+            if ( filePath.IsDirectoryPath() )
+            {
+                Directory* pDirectory = FindOrCreateDirectory( filePath );
+                EE_ASSERT( pDirectory != nullptr );
+            }
+            else
+            {
+                AddFileRecord( filePath );
+            }
         }
 
+        // Notify users that the DB has been rebuilt
         //-------------------------------------------------------------------------
 
         if ( m_databaseUpdatedEvent.HasBoundUsers() )
@@ -265,7 +285,7 @@ namespace EE::Resource
 
     void ResourceDatabase::AddFileRecord( FileSystem::Path const& path )
     {
-        auto const resourcePath = ResourcePath::FromFileSystemPath(m_rawResourceDirPath, path);
+        auto const resourcePath = ResourcePath::FromFileSystemPath( m_rawResourceDirPath, path );
         EE_ASSERT( resourcePath.IsFile() );
 
         auto pNewEntry = EE::New<ResourceEntry>();
@@ -296,9 +316,10 @@ namespace EE::Resource
             if ( pDirectory->m_files[i]->m_filePath == path )
             {
                 // Remove from categorized resource lists
-                if ( pDirectory->m_files[i]->m_resourceID.IsValid() )
+                ResourceID const& resourceID = pDirectory->m_files[i]->m_resourceID;
+                if ( resourceID.IsValid() )
                 {
-                    ResourceTypeID const typeID = pDirectory->m_files[i]->m_resourceID.GetResourceTypeID();
+                    ResourceTypeID const typeID = resourceID.GetResourceTypeID();
 
                     auto iter = m_resourcesPerType.find( typeID );
                     if ( iter != m_resourcesPerType.end() )
@@ -306,6 +327,8 @@ namespace EE::Resource
                         TVector<ResourceEntry*>& category = iter->second;
                         category.erase_first_unsorted( pDirectory->m_files[i] );
                     }
+
+                    m_resourceDeletedEvent.Execute( resourceID );
                 }
 
                 // Destroy record
@@ -342,9 +365,18 @@ namespace EE::Resource
             EE_HALT();
         }
 
-        for ( auto const& filePath : foundPaths )
+        // If this is an empty directory, add to the directory list
+        if ( foundPaths.empty() )
         {
-            AddFileRecord( filePath );
+            Directory* pDirectory = FindOrCreateDirectory( newDirectoryPath );
+            EE_ASSERT( pDirectory != nullptr );
+        }
+        else // Add file records (this will automatically create the directory record)
+        {
+            for ( auto const& filePath : foundPaths )
+            {
+                AddFileRecord( filePath );
+            }
         }
     }
 
@@ -414,6 +446,7 @@ namespace EE::Resource
 
         //-------------------------------------------------------------------------
 
+        EE_ASSERT( pDirectory != nullptr );
         pDirectory->ChangePath( m_rawResourceDirPath, newPath );
     }
 }

@@ -22,7 +22,7 @@ namespace EE::ImGuiX
         void StartFrame( float deltaTime );
         void EndFrame();
 
-        bool Initialize( String const& settingsIniFilename, Render::RenderDevice* pRenderDevice, bool enableViewports = false );
+        bool Initialize( Render::RenderDevice* pRenderDevice, bool enableViewports = false );
         void Shutdown();
 
     private:
@@ -32,6 +32,7 @@ namespace EE::ImGuiX
     private:
 
         String                  m_iniFilename;
+        String                  m_logFilename;
     };
 }
 #endif

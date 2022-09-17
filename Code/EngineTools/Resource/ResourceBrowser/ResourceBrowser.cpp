@@ -9,6 +9,8 @@
 #include "System/Profiling.h"
 #include "System/Platform/PlatformHelpers_Win32.h"
 #include <eastl/sort.h>
+#include "EngineTools/Core/Helpers/CommonDialogs.h"
+#include "EngineTools/Resource/ResourceDatabase.h"
 
 //-------------------------------------------------------------------------
 
@@ -48,6 +50,27 @@ namespace EE
         virtual uint64_t GetUniqueID() const override { return m_resourcePath.GetID(); }
         virtual bool HasContextMenu() const override { return true; }
         virtual bool IsActivatable() const override { return false; }
+        virtual bool IsLeaf() const override { return IsFile(); }
+
+        virtual String GetDisplayName() const override
+        {
+            String displayName;
+
+            if ( IsDirectory() )
+            {
+                displayName.sprintf( EE_ICON_FOLDER" %s", GetNameID().c_str() );
+            }
+            else if( IsResourceFile() )
+            {
+                displayName.sprintf( EE_ICON_FILE_OUTLINE" %s", GetNameID().c_str() );
+            }
+            else if ( IsRawFile() )
+            {
+                displayName.sprintf( EE_ICON_FILE_QUESTION_OUTLINE" %s", GetNameID().c_str() );
+            }
+
+            return displayName;
+        }
 
         // File Info
         //-------------------------------------------------------------------------
@@ -57,12 +80,8 @@ namespace EE
         inline FileSystem::Path const& GetFilePath() const { return m_path; }
         inline ResourcePath const& GetResourcePath() const { return m_resourcePath; }
 
-        virtual bool SupportsDragAndDrop() { return IsFile() && IsResourceFile(); }
-        virtual char const* GetDragAndDropPayloadID() { return "ResourceFile"; }
-        virtual TPair<void*, size_t> GetDragAndDropPayload() const 
-        { 
-            return TPair<void*, size_t>( (void*) m_resourcePath.c_str(), m_resourcePath.GetString().length() );
-        }
+        virtual bool IsDragAndDropSource() const override { return IsFile() && IsResourceFile(); }
+        virtual void SetDragAndDropPayloadData() const override { ImGui::SetDragDropPayload( "ResourceFile", (void*) m_resourcePath.c_str(), m_resourcePath.GetString().length() ); }
 
         // Resource Info
         //-------------------------------------------------------------------------
@@ -99,6 +118,9 @@ namespace EE
     {
         Memory::MemsetZero( m_nameFilterBuffer, 256 * sizeof( char ) );
         m_onDoubleClickEventID = OnItemDoubleClicked().Bind( [this] ( TreeListViewItem* pItem ) { OnBrowserItemDoubleClicked( pItem ); } );
+        m_resourceDatabaseUpdateEventBindingID = toolsContext.m_pResourceDatabase->OnDatabaseUpdated().Bind( [this] () { RebuildBrowserTree(); } );
+
+        CreateDescriptorCategoryTree();
 
         // Refresh visual state
         RebuildBrowserTree();
@@ -108,9 +130,39 @@ namespace EE
     ResourceBrowser::~ResourceBrowser()
     {
         OnItemDoubleClicked().Unbind( m_onDoubleClickEventID );
+        m_toolsContext.m_pResourceDatabase->OnDatabaseUpdated().Unbind( m_resourceDatabaseUpdateEventBindingID );
 
         EE::Delete( m_pResourceDescriptorCreator );
         EE::Delete( m_pRawResourceInspector );
+    }
+
+    //-------------------------------------------------------------------------
+
+    void ResourceBrowser::CreateDescriptorCategoryTree()
+    {
+        TypeSystem::TypeRegistry const* pTypeRegistry = m_toolsContext.m_pTypeRegistry;
+        TVector<TypeSystem::TypeInfo const*> descriptorTypeInfos = pTypeRegistry->GetAllDerivedTypes( Resource::ResourceDescriptor::GetStaticTypeID(), false, false );
+
+        for ( auto pTypeInfo : descriptorTypeInfos )
+        {
+            auto pRD = (Resource::ResourceDescriptor const*) pTypeInfo->GetDefaultInstance();
+            if ( !pRD->IsUserCreateableDescriptor() )
+            {
+                continue;
+            }
+
+            //-------------------------------------------------------------------------
+
+            String category = pTypeInfo->m_ID.c_str();
+            StringUtils::ReplaceAllOccurrencesInPlace( category, "::", "/" );
+            StringUtils::ReplaceAllOccurrencesInPlace( category, "EE/", "" );
+            size_t const foundIdx = category.find_last_of( '/' );
+            EE_ASSERT( foundIdx != String::npos );
+            category = category.substr( 0, foundIdx );
+
+            auto pResourceInfo = pTypeRegistry->GetResourceInfoForResourceType( pRD->GetCompiledResourceTypeID() );
+            m_categorizedDescriptorTypes.AddItem( category, pResourceInfo->m_friendlyName.c_str(), pTypeInfo );
+        }
     }
 
     //-------------------------------------------------------------------------
@@ -125,6 +177,8 @@ namespace EE
             TreeListView::Draw();
         }
         ImGui::End();
+
+        DrawDialogs();
 
         //-------------------------------------------------------------------------
 
@@ -149,9 +203,9 @@ namespace EE
         return isOpen;
     }
 
-    void ResourceBrowser::RebuildTreeInternal()
+    void ResourceBrowser::RebuildTreeUserFunction()
     {
-        if ( !FileSystem::GetDirectoryContents( m_toolsContext.GetRawResourceDirectory(), m_foundPaths, FileSystem::DirectoryReaderOutput::OnlyFiles, FileSystem::DirectoryReaderMode::Expand) )
+        if ( !FileSystem::GetDirectoryContents( m_toolsContext.GetRawResourceDirectory(), m_foundPaths, FileSystem::DirectoryReaderOutput::All, FileSystem::DirectoryReaderMode::Expand) )
         {
             EE_HALT();
         }
@@ -161,21 +215,23 @@ namespace EE
         for ( auto const& path : m_foundPaths )
         {
             auto& parentItem = FindOrCreateParentForItem( path );
-
-            // Check if this is a registered resource
-            ResourceTypeID resourceTypeID;
-            auto const extension = path.GetLowercaseExtensionAsString();
-            if ( extension.length() <= 4 )
+            if ( path.IsFilePath() )
             {
-                resourceTypeID = ResourceTypeID( extension.c_str() );
-                if ( !m_toolsContext.m_pTypeRegistry->IsRegisteredResourceType( resourceTypeID ) )
+                // Check if this is a registered resource
+                ResourceTypeID resourceTypeID;
+                auto const extension = path.GetLowercaseExtensionAsString();
+                if ( extension.length() <= 4 )
                 {
-                    resourceTypeID = ResourceTypeID();
+                    resourceTypeID = ResourceTypeID( extension.c_str() );
+                    if ( !m_toolsContext.m_pTypeRegistry->IsRegisteredResourceType( resourceTypeID ) )
+                    {
+                        resourceTypeID = ResourceTypeID();
+                    }
                 }
-            }
 
-            // Create file item
-            parentItem.CreateChild<ResourceBrowserTreeItem>( path.GetFilename().c_str(), path, ResourcePath::FromFileSystemPath( m_toolsContext.GetRawResourceDirectory(), path ), resourceTypeID );
+                // Create file item
+                parentItem.CreateChild<ResourceBrowserTreeItem>( path.GetFilename().c_str(), path, ResourcePath::FromFileSystemPath( m_toolsContext.GetRawResourceDirectory(), path ), resourceTypeID );
+            }
         }
 
         UpdateVisibility();
@@ -242,24 +298,27 @@ namespace EE
 
     void ResourceBrowser::DrawCreationControls( UpdateContext const& context )
     {
+        ImGuiX::ScopedFont const sf( ImGuiX::Font::SmallBold );
         float const availableWidth = ImGui::GetContentRegionAvail().x;
         float const buttonWidth = ( availableWidth - 4.0f ) / 2.0f;
 
-        if ( ImGuiX::ColoredButton( Colors::Green, Colors::White, EE_ICON_PLUS"Create New", ImVec2( buttonWidth, 0 ) ) )
+        if ( ImGuiX::ColoredButton( Colors::Green, Colors::White, EE_ICON_PLUS" CREATE", ImVec2( buttonWidth, 0 ) ) )
         {
             ImGui::OpenPopup( "CreateNewDescriptor" );
         }
+        ImGuiX::ItemTooltip( "Create a new resource descriptor and fill out the settings by hand! This is how you create resources that dont have a source file." );
 
         if ( ImGui::BeginPopup( "CreateNewDescriptor" ) )
         {
-            DrawCreateNewDescriptorMenu( m_toolsContext.GetRawResourceDirectory() );
+            DrawDescriptorMenuCategory( m_toolsContext.GetRawResourceDirectory(), m_categorizedDescriptorTypes.GetRootCategory() );
             ImGui::EndPopup();
         }
+        ImGuiX::ItemTooltip( "Create a resource descriptor based on a source file. This will pop up a helper window to help you with the creation." );
 
         //-------------------------------------------------------------------------
 
         ImGui::SameLine( 0, 4 );
-        if ( ImGuiX::ColoredButton( Colors::OrangeRed, Colors::White, EE_ICON_FILE_IMPORT"Import", ImVec2( buttonWidth, 0 ) ) )
+        if ( ImGuiX::ColoredButton( Colors::OrangeRed, Colors::White, EE_ICON_FILE_IMPORT" IMPORT", ImVec2( buttonWidth, 0 ) ) )
         {
             auto const selectedFile = pfd::open_file( "Load Map", m_toolsContext.GetRawResourceDirectory().c_str() ).result();
             if ( !selectedFile.empty() )
@@ -400,7 +459,7 @@ namespace EE
 
     TreeListViewItem& ResourceBrowser::FindOrCreateParentForItem( FileSystem::Path const& path )
     {
-        EE_ASSERT( path.IsFilePath() );
+        //EE_ASSERT( path.IsFilePath() );
 
         TreeListViewItem* pCurrentItem = &m_rootItem;
         FileSystem::Path directoryPath = m_toolsContext.GetRawResourceDirectory();
@@ -463,7 +522,7 @@ namespace EE
 
             if ( ImGui::BeginMenu( "Create New Descriptor" ) )
             {
-                DrawCreateNewDescriptorMenu( pResourceItem->GetFilePath() );
+                DrawDescriptorMenuCategory( pResourceItem->GetFilePath(), m_categorizedDescriptorTypes.GetRootCategory() );
                 ImGui::EndMenu();
             }
         }
@@ -482,7 +541,7 @@ namespace EE
         }
     }
 
-    void ResourceBrowser::DrawAdditionalUI()
+    void ResourceBrowser::DrawDialogs()
     {
         if ( m_showDeleteConfirmationDialog )
         {
@@ -519,52 +578,6 @@ namespace EE
         }
     }
 
-    void ResourceBrowser::DrawCreateNewDescriptorMenu( FileSystem::Path const& path )
-    {
-        EE_ASSERT( path.IsDirectoryPath() );
-
-        TypeSystem::TypeRegistry const* pTypeRegistry = m_toolsContext.m_pTypeRegistry;
-        TVector<TypeSystem::TypeInfo const*> descriptorTypeInfos = pTypeRegistry->GetAllDerivedTypes( Resource::ResourceDescriptor::GetStaticTypeID(), false, false );
-
-        // Filter Type Info list
-        //-------------------------------------------------------------------------
-
-        for ( auto i = (int32_t) descriptorTypeInfos.size() - 1; i >= 0; i-- )
-        {
-            auto pRD = (Resource::ResourceDescriptor const*) descriptorTypeInfos[i]->GetDefaultInstance();
-            if ( !pRD->IsUserCreateableDescriptor() )
-            {
-                descriptorTypeInfos.erase_unsorted( descriptorTypeInfos.begin() + i );
-            }
-        }
-
-        auto sortPredicate = [pTypeRegistry] ( TypeSystem::TypeInfo const* const& pTypeInfoA, TypeSystem::TypeInfo const* const& pTypeInfoB )
-        {
-            auto pRDA = (Resource::ResourceDescriptor const*) pTypeInfoA->GetDefaultInstance();
-            auto pRDB = (Resource::ResourceDescriptor const*) pTypeInfoB->GetDefaultInstance();
-
-            auto pResourceInfoA = pTypeRegistry->GetResourceInfoForResourceType( pRDA->GetCompiledResourceTypeID() );
-            auto pResourceInfoB = pTypeRegistry->GetResourceInfoForResourceType( pRDB->GetCompiledResourceTypeID() );
-            return pResourceInfoA->m_friendlyName < pResourceInfoB->m_friendlyName;
-        };
-
-        eastl::sort( descriptorTypeInfos.begin(), descriptorTypeInfos.end(), sortPredicate );
-
-        //-------------------------------------------------------------------------
-
-        for ( auto pDescriptorTypeInfo : descriptorTypeInfos )
-        {
-            auto pDefaultInstance = Cast<Resource::ResourceDescriptor>( pDescriptorTypeInfo->GetDefaultInstance() );
-            EE_ASSERT( pDefaultInstance->IsUserCreateableDescriptor() );
-
-            auto pResourceInfo = pTypeRegistry->GetResourceInfoForResourceType( pDefaultInstance->GetCompiledResourceTypeID() );
-            if ( ImGui::MenuItem( pResourceInfo->m_friendlyName.c_str() ) )
-            {
-                m_pResourceDescriptorCreator = EE::New<ResourceDescriptorCreator>( &m_toolsContext, pDescriptorTypeInfo->m_ID, path );
-            }
-        }
-    }
-
     void ResourceBrowser::OnBrowserItemDoubleClicked( TreeListViewItem* pItem )
     {
         auto pResourceFileItem = static_cast<ResourceBrowserTreeItem const*>( pItem );
@@ -584,6 +597,42 @@ namespace EE
             if ( Resource::RawFileInspectorFactory::CanCreateInspector( pResourceFileItem->GetFilePath() ) )
             {
                 m_pRawResourceInspector = Resource::RawFileInspectorFactory::TryCreateInspector( &m_toolsContext, pResourceFileItem->GetFilePath() );
+            }
+        }
+    }
+
+    //-------------------------------------------------------------------------
+
+    void ResourceBrowser::DrawDescriptorMenuCategory( FileSystem::Path const& path, Category<TypeSystem::TypeInfo const*> const& category )
+    {
+        auto DrawItems = [this, &path, &category] ()
+        {
+            for ( auto const& childCategory : category.m_childCategories )
+            {
+                DrawDescriptorMenuCategory( path, childCategory );
+            }
+
+            for ( auto const& item : category.m_items )
+            {
+                if ( ImGui::MenuItem( item.m_name.c_str() ) )
+                {
+                    m_pResourceDescriptorCreator = EE::New<ResourceDescriptorCreator>( &m_toolsContext, item.m_data->m_ID, path );
+                }
+            }
+        };
+
+        //-------------------------------------------------------------------------
+
+        if ( category.m_depth == -1 )
+        {
+            DrawItems();
+        }
+        else
+        {
+            if ( ImGui::BeginMenu( category.m_name.c_str() ) )
+            {
+                DrawItems();
+                ImGui::EndMenu();
             }
         }
     }

@@ -8,6 +8,15 @@
 
 namespace EE
 {
+    #if EE_DEVELOPMENT_TOOLS
+    namespace EntityModel
+    {
+        class EntityStructureEditor;
+    }
+    #endif
+
+    //-------------------------------------------------------------------------
+
     class EE_ENGINE_API SpatialEntityComponent : public EntityComponent
     {
         EE_REGISTER_ENTITY_COMPONENT( SpatialEntityComponent );
@@ -17,6 +26,10 @@ namespace EE
         friend EntityModel::Serializer;
         friend EntityModel::EntityMapEditor;
         friend EntityModel::EntityCollection;
+
+        #if EE_DEVELOPMENT_TOOLS
+        friend EntityModel::EntityStructureEditor;
+        #endif
 
         struct AttachmentSocketTransformResult
         {
@@ -31,7 +44,10 @@ namespace EE
         // Spatial data
         //-------------------------------------------------------------------------
 
-        inline bool IsRootComponent() const { return m_pSpatialParent == nullptr; }
+        // Are we the root component for this entity? 
+        inline bool IsRootComponent() const { return m_pSpatialParent == nullptr || m_pSpatialParent->m_entityID != m_entityID; }
+
+        // Do we hav any spatial children
         inline bool HasChildren() const { return !m_spatialChildren.empty(); }
 
         inline Transform const& GetLocalTransform() const { return m_transform; }
@@ -76,14 +92,25 @@ namespace EE
             SetWorldTransform( newWorldTransform );
         }
 
+        // Do we have a spatial parent?
         inline bool HasSpatialParent() const { return m_pSpatialParent != nullptr; }
+        
+        // Get the spatial parent ID
         inline ComponentID GetSpatialParentID() const { EE_ASSERT( HasSpatialParent() ); return m_pSpatialParent->GetID(); }
+
+        // Get the world transform of our spatial parent
         inline Transform const& GetSpatialParentWorldTransform() const { EE_ASSERT( HasSpatialParent() ); return m_pSpatialParent->GetWorldTransform(); }
 
+        // How deep in the spatial hierarchy are we?
         int32_t GetSpatialHierarchyDepth( bool limitToCurrentEntity = true ) const;
 
-        // The socket that this component is attached to
+        // Check if we are a spatial child a certain component
+        bool IsSpatialChildOf( SpatialEntityComponent const* pPotentialParent ) const;
+
+        // Get the socket ID that we want to be attached to
         inline StringID GetAttachmentSocketID() const { return m_parentAttachmentSocketID; }
+
+        // Set the socket ID that we want to be attached to on the parent
         inline void SetAttachmentSocketID( StringID socketID ) { m_parentAttachmentSocketID = socketID; }
 
         // Returns the world transform for the specified attachment socket if it exists, if it doesnt this function returns the world transform
@@ -93,8 +120,8 @@ namespace EE
         // Conversion Functions
         //-------------------------------------------------------------------------
 
-        // Convert a world transform to a component local transform 
-        inline Transform ConvertWorldTransformToLocalTransform( Transform const& worldTransform ) const { return worldTransform * m_worldTransform.GetInverse(); }
+        // Convert a world transform to a component local transform
+        inline Transform ConvertWorldTransformToLocalTransform( Transform const& worldTransform ) const { return Transform::Delta( m_worldTransform, worldTransform ); }
 
         // Convert a world point to a component local point 
         inline Vector ConvertWorldPointToLocalPoint( Vector const& worldPoint ) const { return m_worldTransform.GetInverse().TransformPoint( worldPoint ); }
@@ -131,19 +158,19 @@ namespace EE
 
         // This function allows you to directly set the world transform for a component and skip the callback.
         // This must be used with care and so not be exposed externally.
-        inline void SetWorldTransformDirectly( Transform NewWorldTransform, bool triggerCallback = true )
+        inline void SetWorldTransformDirectly( Transform newWorldTransform, bool triggerCallback = true )
         {
             // Only update the transform if we have a parent, if we dont have a parent it means we are the root transform
             if ( m_pSpatialParent != nullptr )
             {
                 auto parentWorldTransform = m_pSpatialParent->GetAttachmentSocketTransform( m_parentAttachmentSocketID );
-                m_worldTransform = NewWorldTransform;
-                m_transform = m_worldTransform * parentWorldTransform.GetInverse();
+                m_worldTransform = newWorldTransform;
+                m_transform = Transform::Delta( parentWorldTransform, m_worldTransform );
             }
             else
             {
-                m_worldTransform = NewWorldTransform;
-                m_transform = NewWorldTransform;
+                m_worldTransform = newWorldTransform;
+                m_transform = newWorldTransform;
             }
 
             // Calculate world bounds
@@ -195,15 +222,15 @@ namespace EE
 
     private:
 
-        EE_EXPOSE Transform                                                m_transform;                            // Local space transform
+        EE_EXPOSE Transform                                                 m_transform;                            // Local space transform
         OBB                                                                 m_bounds;                               // Local space bounding box
         Transform                                                           m_worldTransform;                       // World space transform (left uninitialized to catch initialization errors)
         OBB                                                                 m_worldBounds;                          // World space bounding box
 
         //-------------------------------------------------------------------------
 
-        SpatialEntityComponent*                                             m_pSpatialParent = nullptr;             // The component we are attached to
-        EE_EXPOSE StringID                                                 m_parentAttachmentSocketID;             // The socket we are attached to (can be invalid)
-        TInlineVector<SpatialEntityComponent*, 2>                           m_spatialChildren;                      // All components that are attached to us
+        SpatialEntityComponent*                                             m_pSpatialParent = nullptr;             // The component we are attached to (spatial hierarchy is managed by the parent entity!)
+        EE_EXPOSE StringID                                                  m_parentAttachmentSocketID;             // The socket we are attached to (can be invalid)
+        TInlineVector<SpatialEntityComponent*, 2>                           m_spatialChildren;                      // All components that are attached to us. DO NOT EXPOSE THIS!!!
     };
 }

@@ -2,13 +2,10 @@
 #include "Engine_Win32.h"
 #include "Resource.h"
 #include "Applications/Shared/cmdParser/cmdParser.h"
+#include "Applications/Shared/LivePP/LivePP.h"
 #include "System/Imgui/ImguiStyle.h"
 #include <tchar.h>
 #include <windows.h>
-
-#if EE_ENABLE_LPP
-#include "LPP_API_x64_CPP.h"
-#endif
 
 //-------------------------------------------------------------------------
 
@@ -59,7 +56,7 @@ namespace EE
     bool EditorApplication::Initialize()
     {
         Int2 const windowDimensions( ( m_windowRect.right - m_windowRect.left ), ( m_windowRect.bottom - m_windowRect.top ) );
-        if ( !m_editorEngine.Initialize( m_applicationNameNoWhitespace, windowDimensions ) )
+        if ( !m_editorEngine.Initialize( windowDimensions ) )
         {
             return FatalError( "Failed to initialize engine" );
         }
@@ -91,24 +88,18 @@ namespace EE
 
 int APIENTRY _tWinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPTSTR lpCmdLine, int nCmdShow )
 {
-    //-------------------------------------------------------------------------
-    // Live++ Support
-    //-------------------------------------------------------------------------
+    int32_t result = 0;
+    {
+        #if EE_ENABLE_LPP
+        auto lppAgent = EE::ScopedLPPAgent();
+        #endif
 
-    #if EE_ENABLE_LPP
-    auto lppAgent = lpp::LppCreateDefaultAgent( L"../../External/LivePP", L"" );
-    lppAgent.EnableModule( lpp::LppGetCurrentModulePath(), lpp::LPP_MODULES_OPTION_ALL_IMPORT_MODULES );
-    #endif
+        //-------------------------------------------------------------------------
 
-    //-------------------------------------------------------------------------
-
-    EE::ApplicationGlobalState globalState;
-    EE::EditorApplication editorApplication( hInstance );
-    int32_t const result = editorApplication.Run( __argc, __argv );
-
-    #if EE_ENABLE_LPP
-    lpp::LppDestroyDefaultAgent( &lppAgent );
-    #endif
+        EE::ApplicationGlobalState globalState;
+        EE::EditorApplication editorApplication( hInstance );
+        result = editorApplication.Run( __argc, __argv );
+    }
 
     return result;
 }

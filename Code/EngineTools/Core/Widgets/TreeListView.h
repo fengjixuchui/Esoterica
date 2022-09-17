@@ -36,10 +36,12 @@ namespace EE
         virtual uint64_t GetUniqueID() const = 0;
 
         // The name ID is the name of the item relative to its parent. This is not guaranteed to be unique per item
+        // Used by default for sorting
         virtual StringID GetNameID() const = 0;
 
         // The friendly display name printed in the UI (generally the same as the nameID)
-        virtual char const* GetDisplayName() const 
+        // This is separate from the name since we might want to add an icon or other decoration to the display name without changing the name
+        virtual String GetDisplayName() const 
         {
             StringID const nameID = GetNameID();
             return nameID.IsValid() ? nameID.c_str() : "!!! Invalid Name !!!";
@@ -54,16 +56,35 @@ namespace EE
         // Can this item be set as the active item (note: this is different from the selected item)
         virtual bool IsActivatable() const { return false; }
 
+        // Get the tooltip for this item if it has one
+        virtual char const* GetTooltipText() const { return nullptr; }
+
         // Expansion
         //-------------------------------------------------------------------------
 
-        inline void SetExpanded( bool isExpanded ) { m_isExpanded = isExpanded; }
+        // Is this item a leaf node (i.e., should we draw the expansion arrow)
+        virtual bool IsLeaf() const { return m_children.empty(); }
+
+        inline void SetExpanded( bool isExpanded, bool applyToChildren = false ) 
+        {
+            m_isExpanded = isExpanded;
+
+            if ( applyToChildren )
+            {
+                for ( auto pChild : m_children )
+                {
+                    pChild->SetExpanded( isExpanded, applyToChildren );
+                }
+            }
+        }
+
         inline bool IsExpanded() const { return m_isExpanded; }
 
         // Visibility
         //-------------------------------------------------------------------------
 
         inline bool IsVisible() const { return m_isVisible; }
+
         inline bool HasVisibleChildren() const { return !m_children.empty(); }
 
         // Update visibility for this branch based on a user-supplied delegate
@@ -72,9 +93,14 @@ namespace EE
         // Drag and drop
         //-------------------------------------------------------------------------
 
-        virtual bool SupportsDragAndDrop() { return false; }
-        virtual char const* GetDragAndDropPayloadID() { return nullptr; }
-        virtual TPair<void*, size_t> GetDragAndDropPayload() const { return TPair<void*, size_t>( nullptr, 0 ); }
+        // Can we be dragged somewhere?
+        virtual bool IsDragAndDropSource() const { return false; }
+
+        // Are we a valid target for drag and drop operations?
+        virtual bool IsDragAndDropTarget() const { return false; }
+
+        // Set the ImGui payload data for the drag and drop operation
+        virtual void SetDragAndDropPayloadData() const {}
 
         // Hierarchy
         //-------------------------------------------------------------------------
@@ -150,29 +176,14 @@ namespace EE
 
     class EE_ENGINETOOLS_API TreeListView
     {
-        enum class VisualTreeState
+
+    public:
+
+        enum class ChangeReason
         {
-            None,
-            UpToDate,
-            NeedsRebuild,
-            NeedsRebuildAndViewReset
-        };
-
-        struct VisualTreeItem
-        {
-            VisualTreeItem() = default;
-
-            VisualTreeItem( TreeListViewItem* pItem, int32_t hierarchyLevel )
-                : m_pItem( pItem )
-                , m_hierarchyLevel( hierarchyLevel )
-            {
-                EE_ASSERT( pItem != nullptr && hierarchyLevel >= 0 );
-            }
-
-        public:
-
-            TreeListViewItem*   m_pItem = nullptr;
-            int32_t               m_hierarchyLevel = -1;
+            UserInput,
+            CodeRequest,
+            TreeRebuild
         };
 
     protected:
@@ -194,6 +205,33 @@ namespace EE
             StringID m_ID = StringID( "Root" );
         };
 
+    private:
+
+        enum class VisualTreeState
+        {
+            None,
+            UpToDate,
+            NeedsRebuild,
+            NeedsRebuildAndViewReset
+        };
+
+        struct VisualTreeItem
+        {
+            VisualTreeItem() = default;
+
+            VisualTreeItem( TreeListViewItem* pItem, int32_t hierarchyLevel )
+                : m_pItem( pItem )
+                , m_hierarchyLevel( hierarchyLevel )
+            {
+                EE_ASSERT( pItem != nullptr && hierarchyLevel >= 0 );
+            }
+
+        public:
+
+            TreeListViewItem*                   m_pItem = nullptr;
+            int32_t                             m_hierarchyLevel = -1;
+        };
+
     public:
 
         TreeListView() = default;
@@ -202,28 +240,27 @@ namespace EE
         // Visual
         //-------------------------------------------------------------------------
 
-        void Draw();
-        inline void RefreshVisualState() { m_visualTreeState = VisualTreeState::NeedsRebuild; }
+        void Draw( float listHeight = 0.0f );
 
         // Selection, Activation and Events
         //-------------------------------------------------------------------------
 
         // Clear the current selection
-        inline void ClearSelection() { m_selection.clear(); m_onSelectionChanged.Execute(); }
+        void ClearSelection();
 
         // Get the current selection
         inline TVector<TreeListViewItem*> GetSelection() const { return m_selection; }
 
         // Fire whenever the selection changes
-        inline TEventHandle<> OnSelectedChanged() { return m_onSelectionChanged; }
+        inline TEventHandle<ChangeReason> OnSelectedChanged() { return m_onSelectionChanged; }
 
         // Clear active item
-        inline void ClearActiveItem() { m_pActiveItem = nullptr; m_onActiveItemChanged.Execute(); }
+        inline void ClearActiveItem() { m_pActiveItem = nullptr; m_onActiveItemChanged.Execute( ChangeReason::CodeRequest ); }
 
         inline TreeListViewItem* GetActiveItem() const { return m_pActiveItem; }
 
         // Fires whenever the active item changes, parameter is the new active item (can be null)
-        inline TEventHandle<> OnActiveItemChanged() { return m_onActiveItemChanged; }
+        inline TEventHandle<ChangeReason> OnActiveItemChanged() { return m_onActiveItemChanged; }
 
         // Fires whenever an item is double clicked, parameter is the item that was double clicked (cant be null)
         inline TEventHandle<TreeListViewItem*> OnItemDoubleClicked() { return m_onItemDoubleClicked; }
@@ -254,16 +291,21 @@ namespace EE
 
     protected:
 
+        inline bool IsCurrentlyDrawingTree() const { return m_isDrawingTree; }
+
+        inline void RefreshVisualState() { m_visualTreeState = VisualTreeState::NeedsRebuild; }
+
         inline int32_t GetNumItems() const { return (int32_t) m_visualTree.size(); }
 
         TreeListViewItem* FindItem( uint64_t uniqueID );
+
+        inline TreeListViewItem const* FindItem( uint64_t uniqueID ) const { return const_cast<TreeListView*>( this )->FindItem( uniqueID ); }
 
         void DestroyItem( uint64_t uniqueID );
 
         //-------------------------------------------------------------------------
 
-        // User overrideable function to draw any addition windows/dialogs that might be needed
-        virtual void DrawAdditionalUI() {}
+        virtual void HandleDragAndDropOnItem( TreeListViewItem* pDragAndDropTargetItem ) {}
 
         // Get the number of extra columns needed
         virtual uint32_t GetNumExtraColumns() const { return 0; }
@@ -280,25 +322,60 @@ namespace EE
         // Call this function to rebuild the tree contents - This will in turn call the user supplied "RebuildTreeInternal" function
         void RebuildTree( bool maintainExpansionAndSelection = true );
 
+        // Tears down the entire tree
+        void DestroyTree();
+
         // Implement this to rebuild the tree, the root item will have already been destroyed at this point!
         // DO NOT CALL THIS DIRECTLY!
-        virtual void RebuildTreeInternal() = 0;
+        virtual void RebuildTreeUserFunction() = 0;
 
-        // Select just this item
-        void SelectItem( TreeListViewItem* pItem );
+        // Is a given item selected?
+        bool IsItemSelected( TreeListViewItem const* pItem ) const;
 
-        // Add to the current selection
-        void AddToSelection( TreeListViewItem* pItem );
+        // Set the selection to a single item - Notification will only be fired if the selection actually changes
+        inline void SetSelection( TreeListViewItem* pItem ){ SetSelectionInternal( pItem, ChangeReason::CodeRequest ); }
 
-        // Remove an item from the current selection
-        void RemoveFromSelection( TreeListViewItem* pItem );
+        // Add to the current selection - Notification will only be fired if the selection actually changes
+        inline void AddToSelection( TreeListViewItem* pItem ){ AddToSelectionInternal( pItem, ChangeReason::CodeRequest ); }
+
+        // Add an item range to the selection - Notification will only be fired if the selection actually changes
+        inline void AddToSelection( TVector<TreeListViewItem*> const& itemRange ){ AddToSelectionInternal( itemRange, ChangeReason::CodeRequest ); }
+
+        // Add an item range to the selection - Notification will only be fired if the selection actually changes
+        inline void SetSelection( TVector<TreeListViewItem*> const& itemRange ){ SetSelectionInternal( itemRange, ChangeReason::CodeRequest ); }
+
+        // Remove an item from the current selection - Notification will only be fired if the selection actually changes
+        inline void RemoveFromSelection( TreeListViewItem* pItem ) { RemoveFromSelectionInternal( pItem, ChangeReason::CodeRequest ); }
 
         // Override this to handle selection changes
-        virtual void OnSelectionChangedInternal() {}
+        virtual void HandleActiveItemChanged( ChangeReason reason ){}
+
+        // Override this to handle selection changes
+        virtual void HandleSelectionChanged( ChangeReason reason ) {}
+
+        // Caches the current selection and expansion state
+        void CacheSelectionAndExpansionState();
+
+        // Tries to restore the current selection and expansion state
+        void RestoreCachedSelectionAndExpansionState();
+
+        // Override this to disable tree sorting
+        virtual bool ShouldSortTree() const { return true; }
+
+        // Sorts an item's children using the virtual ItemSortComparator function
+        void SortItemChildren( TreeListViewItem* pItem );
+
+        // The function used in the sort
+        virtual bool ItemSortComparator( TreeListViewItem const* pItemA, TreeListViewItem const* pItemB ) const;
 
     private:
 
         void HandleItemSelection( TreeListViewItem* pItem, bool isSelected );
+        void SetSelectionInternal( TreeListViewItem* pItem, ChangeReason reason );
+        void AddToSelectionInternal( TreeListViewItem* pItem, ChangeReason reason );
+        void AddToSelectionInternal( TVector<TreeListViewItem*> const& itemRange, ChangeReason reason );
+        void SetSelectionInternal( TVector<TreeListViewItem*> const& itemRange, ChangeReason reason );
+        void RemoveFromSelectionInternal( TreeListViewItem* pItem, ChangeReason reason );
 
         void DrawVisualItem( VisualTreeItem& visualTreeItem );
         void TryAddItemToVisualTree( TreeListViewItem* pItem, int32_t hierarchyLevel );
@@ -306,10 +383,19 @@ namespace EE
         void RebuildVisualTree();
         void OnItemDoubleClickedInternal( TreeListViewItem* pItem );
 
-        void NotifySelectionChanged()
+        int32_t GetVisualTreeItemIndex( TreeListViewItem const* pBaseItem ) const;
+        int32_t GetVisualTreeItemIndex( uint64_t uniqueID ) const;
+
+        void NotifySelectionChanged( ChangeReason reason )
         {
-            OnSelectionChangedInternal();
-            m_onSelectionChanged.Execute();
+            HandleSelectionChanged( reason );
+            m_onSelectionChanged.Execute( reason );
+        }
+
+        void NotifyActiveItemChanged( ChangeReason reason )
+        {
+            HandleActiveItemChanged( reason );
+            m_onActiveItemChanged.Execute( reason );
         }
 
     protected:
@@ -317,19 +403,21 @@ namespace EE
         // The root of the tree - fill this with your items
         TreeRootItem                                            m_rootItem;
 
-        TEvent<>                                                m_onSelectionChanged;
-        TEvent<>                                                m_onActiveItemChanged;
+        TEvent<ChangeReason>                                    m_onSelectionChanged;
+        TEvent<ChangeReason>                                    m_onActiveItemChanged;
         TEvent<TreeListViewItem*>                               m_onItemDoubleClicked;
 
         // The active item is an item that is activated (and deactivated) via a double click
         TreeListViewItem*                                       m_pActiveItem = nullptr;
 
-        // The currently selected item (changes frequently due to clicks/focus/etc...)
-        TVector<TreeListViewItem*>                              m_selection;
-
         // Control tree view behavior
+        bool                                                    m_prioritizeBranchesOverLeavesInVisualTree = true;
         bool                                                    m_expandItemsOnlyViaArrow = false;
         bool                                                    m_multiSelectionAllowed = false;
+        bool                                                    m_drawRowBackground = true;
+        bool                                                    m_drawBorders = true;
+        bool                                                    m_useSmallFont = true;
+        bool                                                    m_showBulletsOnLeaves = false;
 
     private:
 
@@ -337,8 +425,16 @@ namespace EE
         VisualTreeState                                         m_visualTreeState = VisualTreeState::None;
         float                                                   m_estimatedRowHeight = -1.0f;
         float                                                   m_estimatedTreeHeight = -1.0f;
-        int32_t                                                   m_firstVisibleRowItemIdx = 0;
+        int32_t                                                 m_firstVisibleRowItemIdx = 0;
         float                                                   m_itemControlColumnWidth = 0;
         bool                                                    m_maintainVisibleRowIdx = false;
+        bool                                                    m_isDrawingTree = false;
+
+
+        // The currently selected item (changes frequently due to clicks/focus/etc...) - In order of selection time, first is oldest
+        TVector<TreeListViewItem*>                              m_selection;
+        uint64_t                                                m_cachedActiveItemID = 0;
+        TVector<uint64_t>                                       m_selectedItemIDs;
+        TVector<uint64_t>                                       m_originalExpandedItems;
     };
 }

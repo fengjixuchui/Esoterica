@@ -6,6 +6,7 @@
 #include "System/Fonts/FontDecompressor.h"
 #include "System/Fonts/FontData_Lexend.h"
 #include "System/Fonts/FontData_MaterialDesign.h"
+#include "System/FileSystem/FileSystemUtils.h"
 
 //-------------------------------------------------------------------------
 
@@ -18,7 +19,7 @@
 
 namespace EE::ImGuiX
 {
-    bool ImguiSystem::Initialize( String const& iniFilename, Render::RenderDevice* pRenderDevice, bool enableViewports )
+    bool ImguiSystem::Initialize( Render::RenderDevice* pRenderDevice, bool enableViewports )
     {
         ImGui::CreateContext();
 
@@ -40,11 +41,16 @@ namespace EE::ImGuiX
 
         //-------------------------------------------------------------------------
 
-        m_iniFilename = iniFilename;
-        if ( !m_iniFilename.empty() )
-        {
-            io.IniFilename = m_iniFilename.c_str();
-        }
+        FileSystem::Path const outputDir = FileSystem::GetCurrentProcessPath();
+
+        FileSystem::Path const imguiIniPath = outputDir + "EE.imgui.ini";
+        m_iniFilename = imguiIniPath.GetString();
+
+        FileSystem::Path const imguiLogPath = outputDir + "EE.imgui_log.txt";
+        m_logFilename = imguiLogPath.GetString();
+
+        io.IniFilename = m_iniFilename.c_str();
+        io.LogFilename = m_logFilename.c_str();
 
         //-------------------------------------------------------------------------
 

@@ -22,6 +22,8 @@ namespace EE::Render
     {
         TWorkspace<SkeletalMesh>::Initialize( context );
 
+        m_showDescriptorEditor = true;
+
         //-------------------------------------------------------------------------
 
         m_skeletonTreeWindowName.sprintf( "Skeleton##%u", GetID() );
@@ -83,6 +85,8 @@ namespace EE::Render
 
     void SkeletalMeshWorkspace::Update( UpdateContext const& context, ImGuiWindowClass* pWindowClass, bool isFocused )
     {
+        TWorkspace::Update( context, pWindowClass, isFocused );
+
         if ( IsResourceLoaded() )
         {
             auto drawingCtx = GetDrawingContext();
@@ -148,10 +152,6 @@ namespace EE::Render
 
         ImGui::SetNextWindowClass( pWindowClass );
         DrawDetailsWindow( context );
-
-        //-------------------------------------------------------------------------
-
-        DrawDescriptorEditorWindow( context, pWindowClass );
     }
 
     //-------------------------------------------------------------------------
@@ -281,7 +281,7 @@ namespace EE::Render
                         {
                             ImGui::NewLine();
                             ImGui::Text( "Local Transform" );
-                            Transform const& localBoneTransform = m_pResource->GetBindPose()[selectedBoneIdx] * m_pResource->GetBindPose()[parentBoneIdx].GetInverse();
+                            Transform const& localBoneTransform = Transform::Delta( m_pResource->GetBindPose()[parentBoneIdx], m_pResource->GetBindPose()[selectedBoneIdx] );
                             ImGuiX::DisplayTransform( localBoneTransform );
                         }
 
